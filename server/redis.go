@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	redis2 "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 	"os"
 	"stomper"
 	"strings"
@@ -21,12 +21,13 @@ var redisSentinelMasterName = flag.String("redis-sentinel-master-name", getEnvSt
 func setupRedis(ctx context.Context, server *stomper.Server) {
 	redisAddrs := strings.Split(*redisHost, ",")
 
-	var subscription *redis2.PubSub
+	var subscription *redis.PubSub
 	_redisType := strings.ToLower(*redisType)
 	if _redisType == "single" {
-		config := &redis2.Options{
+		config := &redis.Options{
 			Addr:       redisAddrs[0],
 			ClientName: "stomper",
+			MaxRetries: 5,
 		}
 
 		if *redisUsername != "" {
@@ -37,7 +38,7 @@ func setupRedis(ctx context.Context, server *stomper.Server) {
 			config.Password = *redisPassword
 		}
 
-		redisdb := redis2.NewClient(config)
+		redisdb := redis.NewClient(config)
 		if ping := redisdb.Ping(ctx); ping.Err() != nil {
 			panic(ping)
 		}
@@ -46,9 +47,10 @@ func setupRedis(ctx context.Context, server *stomper.Server) {
 		sugar.Infof("[redis] subscribing to (%s)", channels)
 		subscription = redisdb.PSubscribe(ctx, channels...)
 	} else if _redisType == "cluster" {
-		config := &redis2.ClusterOptions{
+		config := &redis.ClusterOptions{
 			Addrs:      redisAddrs,
 			ClientName: "stomper",
+			MaxRetries: 5,
 		}
 
 		if *redisUsername != "" {
@@ -59,7 +61,7 @@ func setupRedis(ctx context.Context, server *stomper.Server) {
 			config.Password = *redisPassword
 		}
 
-		redisdb := redis2.NewClusterClient(config)
+		redisdb := redis.NewClusterClient(config)
 		if ping := redisdb.Ping(ctx); ping.Err() != nil {
 			panic(ping)
 		}
@@ -68,10 +70,11 @@ func setupRedis(ctx context.Context, server *stomper.Server) {
 		sugar.Infof("[redis] subscribing to (%s)", channels)
 		subscription = redisdb.Subscribe(ctx, channels...)
 	} else if _redisType == "sentinel" {
-		config := &redis2.FailoverOptions{
+		config := &redis.FailoverOptions{
 			SentinelAddrs: redisAddrs,
 			MasterName:    *redisSentinelMasterName,
 			ClientName:    "stomper",
+			MaxRetries:    5,
 		}
 
 		if *redisUsername != "" {
@@ -82,7 +85,7 @@ func setupRedis(ctx context.Context, server *stomper.Server) {
 			config.Password = *redisPassword
 		}
 
-		redisdb := redis2.NewFailoverClusterClient(config)
+		redisdb := redis.NewFailoverClusterClient(config)
 		if ping := redisdb.Ping(ctx); ping.Err() != nil {
 			panic(ping)
 		}
@@ -105,7 +108,7 @@ type RedisMessage struct {
 	ContentType string   `json:"contentType"`
 }
 
-func redisReceive(ctx context.Context, subscription *redis2.PubSub, server *stomper.Server) {
+func redisReceive(ctx context.Context, subscription *redis.PubSub, server *stomper.Server) {
 	for {
 		msg, err := subscription.ReceiveMessage(ctx)
 		if err != nil {

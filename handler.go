@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"net/http"
+	"reflect"
 	"strconv"
 )
 
@@ -34,10 +35,18 @@ func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Reque
 	}()
 
 	for {
-		_, message, err := conn.ReadMessage()
+		mt, message, err := conn.ReadMessage()
 		if err != nil {
-			server.Sugar.Warnf("failed to read: %v", err)
+			if _, ok := err.(*websocket.CloseError); ok {
+				break
+			}
+
+			server.Sugar.Warnf("failed to read: (%d) (%s) %v", mt, reflect.TypeOf(err), err)
 			break
+		}
+
+		if mt != websocket.TextMessage {
+			continue
 		}
 
 		if bytes.Equal(message, heartBeatPayload) {
