@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap/zapcore"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"runtime/debug"
 	"stomper"
