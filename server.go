@@ -5,7 +5,6 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,15 +14,17 @@ import (
 var _subscriptionMux sync.Mutex
 var _clientMux sync.Mutex
 
-type SubscribeHandler func(*websocket.Conn, string) bool
-type UnsubscribeHandler func(*websocket.Conn, string)
-type ConnectHandler func(*websocket.Conn, *http.Request, *StompMessage) bool
-type DisconnectHandler func(*websocket.Conn)
-type MessageHandler func(*websocket.Conn, string, *StompMessage)
+type SubscribeHandler func(*Client, string) bool
+type UnsubscribeHandler func(*Client, string)
+type ConnectHandler func(*Client, http.Header, *StompMessage) bool
+type DisconnectHandler func(*Client)
+type MessageHandler func(*Client, string, *StompMessage)
 
 type Server struct {
 	Sugar               *zap.SugaredLogger
 	Compression         bool
+	ReadBufferSize      int
+	WriteBufferSize     int
 	setup               bool
 	upgrader            websocket.Upgrader
 	messageHandlers     []MessageHandler
@@ -31,8 +32,8 @@ type Server struct {
 	unsubscribeHandlers []UnsubscribeHandler
 	connectHandlers     []ConnectHandler
 	disconnectHandlers  []DisconnectHandler
-	clients             map[net.Addr]*websocket.Conn
-	subscriptions       map[string]map[net.Addr]map[string]*websocket.Conn
+	clients             map[uint64]*Client
+	subscriptions       map[string]map[uint64]map[string]*Client
 }
 
 func (server *Server) AddMessageHandler(handler MessageHandler) error {
@@ -87,12 +88,23 @@ func (server *Server) Setup() {
 	}
 
 	server.Sugar = sugar
-	server.clients = make(map[net.Addr]*websocket.Conn)
-	server.subscriptions = make(map[string]map[net.Addr]map[string]*websocket.Conn)
+	server.clients = make(map[uint64]*Client)
+	server.subscriptions = make(map[string]map[uint64]map[string]*Client)
+
+	readBufferSize := server.ReadBufferSize
+	if readBufferSize <= 0 {
+		readBufferSize = 128
+	}
+
+	writeBufferSize := server.WriteBufferSize
+	if writeBufferSize <= 0 {
+		writeBufferSize = 512
+	}
 
 	upgrader := websocket.Upgrader{
-		ReadBufferSize:    1024 * 1024 * 1024,
-		WriteBufferSize:   1024 * 1024 * 1024,
+		ReadBufferSize:    readBufferSize,
+		WriteBufferSize:   writeBufferSize,
+		WriteBufferPool:   &sync.Pool{},
 		EnableCompression: server.Compression,
 		CheckOrigin: func(r *http.Request) bool {
 			return true
@@ -107,25 +119,25 @@ func (server *Server) Setup() {
 	server.setup = true
 }
 
-func (server *Server) addClient(client *websocket.Conn) {
+func (server *Server) addClient(client *Client) {
 	_clientMux.Lock()
 	defer _clientMux.Unlock()
-	server.clients[client.RemoteAddr()] = client
+	server.clients[client.uid] = client
 }
 
-func (server *Server) removeClient(client *websocket.Conn) {
+func (server *Server) removeClient(client *Client) {
 	_clientMux.Lock()
 	defer _clientMux.Unlock()
-	delete(server.clients, client.RemoteAddr())
+	delete(server.clients, client.uid)
 
 	_subscriptionMux.Lock()
 	defer _subscriptionMux.Unlock()
 	for _, subs := range server.subscriptions {
-		delete(subs, client.RemoteAddr())
+		delete(subs, client.uid)
 	}
 }
 
-func (server *Server) addSubscription(client *websocket.Conn, message StompMessage) bool {
+func (server *Server) addSubscription(client *Client, message StompMessage) bool {
 	var topic string
 	var subId string
 	var ok bool
@@ -144,23 +156,23 @@ func (server *Server) addSubscription(client *websocket.Conn, message StompMessa
 
 	subs, sok := server.subscriptions[topic]
 	if !sok {
-		subs = make(map[net.Addr]map[string]*websocket.Conn)
+		subs = make(map[uint64]map[string]*Client)
 		server.subscriptions[topic] = subs
 	}
 
-	clientSubs, csok := subs[client.RemoteAddr()]
+	clientSubs, csok := subs[client.uid]
 	if !csok {
-		clientSubs = make(map[string]*websocket.Conn)
-		subs[client.RemoteAddr()] = clientSubs
+		clientSubs = make(map[string]*Client)
+		subs[client.uid] = clientSubs
 	}
 
 	clientSubs[subId] = client
 	server.subscriptions[topic] = subs
-	server.Sugar.Infof("[%s] subscribed to '%s' (%s)", client.RemoteAddr(), topic, subId)
+	server.Sugar.Infof("[%s] subscribed to '%s' (%s)", client.uid, topic, subId)
 	return true
 }
 
-func (server *Server) removeSubscription(client *websocket.Conn, message StompMessage) bool {
+func (server *Server) removeSubscription(client *Client, message StompMessage) bool {
 	var topic string
 	var subId string
 	var ok bool
@@ -182,14 +194,14 @@ func (server *Server) removeSubscription(client *websocket.Conn, message StompMe
 		return true
 	}
 
-	clientSubs, csok := subs[client.RemoteAddr()]
+	clientSubs, csok := subs[client.uid]
 	if !csok {
 		return true
 	}
 
 	delete(clientSubs, subId)
 	if len(clientSubs) == 0 {
-		delete(subs, client.RemoteAddr())
+		delete(subs, client.uid)
 	}
 
 	server.subscriptions[topic] = subs
@@ -220,7 +232,7 @@ func (server *Server) SendMessage(topic string, contentType string, body string)
 					Body: &byteBody,
 				}
 
-				err := client.WriteMessage(websocket.TextMessage, message.ToPayload())
+				err := client.conn.WriteMessage(websocket.TextMessage, message.ToPayload())
 				if err != nil {
 					server.Sugar.Errorf("unable to write message: %v", err)
 				}

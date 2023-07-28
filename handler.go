@@ -7,10 +7,28 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"sync"
 )
 
 var endOfHeaders []byte
 var heartBeatPayload = []byte("\n")
+
+// Client is a wrapper over ws connection.
+type Client struct {
+	conn *websocket.Conn
+	uid  uint64
+}
+
+var _mutex sync.Mutex
+var clientUid uint64 = 0
+
+func newClient(conn *websocket.Conn) *Client {
+	_mutex.Lock()
+	defer _mutex.Unlock()
+
+	clientUid++
+	return &Client{conn, clientUid}
+}
 
 func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Request) {
 	if !server.setup {
@@ -18,24 +36,29 @@ func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	conn, err := server.upgrader.Upgrade(writer, request, nil)
+	_conn, err := server.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		server.Sugar.Warnf("failed to upgrade: %v", err)
 		writer.Write([]byte(fmt.Sprintf("%v", err)))
 		return
 	}
 
+	client := newClient(_conn)
+	go server.clientHandler(client, request.Header)
+}
+
+func (server *Server) clientHandler(client *Client, header http.Header) {
 	defer func() {
-		defer conn.Close()
+		defer client.conn.Close()
 		for _, handler := range server.disconnectHandlers {
-			handler(conn)
+			handler(client)
 		}
 
-		server.removeClient(conn)
+		server.removeClient(client)
 	}()
 
 	for {
-		mt, message, err := conn.ReadMessage()
+		mt, message, err := client.conn.ReadMessage()
 		if err != nil {
 			if _, ok := err.(*websocket.CloseError); ok {
 				break
@@ -64,19 +87,19 @@ func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Reque
 		headers := stompMsg.Headers
 
 		if command == Connect {
-			err = connect(conn)
+			err = connect(client.conn)
 			if err != nil {
 				server.Sugar.Warnf("unable to connect: %v", err)
 				break
 			}
 
 			for _, handler := range server.connectHandlers {
-				if !handler(conn, request, &stompMsg) {
+				if !handler(client, header, &stompMsg) {
 					return
 				}
 			}
 
-			server.addClient(conn)
+			server.addClient(client)
 		} else if command == Send || command == Subscribe || command == Unsubscribe {
 			destination, ok := headers["destination"]
 			if !ok {
@@ -85,26 +108,26 @@ func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Reque
 
 			if command == Send {
 				for _, handler := range server.messageHandlers {
-					handler(conn, destination, &stompMsg)
+					handler(client, destination, &stompMsg)
 				}
 			} else if command == Subscribe {
 				subscribe := true
 				for _, handler := range server.subscribeHandlers {
-					if !handler(conn, destination) {
+					if !handler(client, destination) {
 						subscribe = false
 						break
 					}
 				}
 
 				if subscribe {
-					server.addSubscription(conn, stompMsg)
+					server.addSubscription(client, stompMsg)
 				}
 			} else if command == Unsubscribe {
 				for _, handler := range server.unsubscribeHandlers {
-					handler(conn, destination)
+					handler(client, destination)
 				}
 
-				server.removeSubscription(conn, stompMsg)
+				server.removeSubscription(client, stompMsg)
 			}
 		} else if command == Disconnect {
 			return
