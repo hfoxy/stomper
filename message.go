@@ -29,7 +29,7 @@ func (m *StompMessage) ToPayload() []byte {
 		data = append(data, []byte("\n")...)
 	}
 
-	data = append(data, []byte("\n\n")...)
+	data = append(data, []byte("\n")...)
 	if m.Body != nil {
 		body := m.Body
 		data = append(data, *body...)

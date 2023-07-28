@@ -6,15 +6,12 @@ import (
 	"github.com/gorilla/websocket"
 	"net/http"
 	"strconv"
-	"sync"
 )
-
-var _subMux sync.Mutex
 
 var endOfHeaders []byte
 var heartBeatPayload = []byte("\n")
 
-func (server *StompServer) WssHandler(writer http.ResponseWriter, request *http.Request) {
+func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Request) {
 	if !server.setup {
 		server.Sugar.Errorf("server not setup")
 		return
@@ -32,6 +29,8 @@ func (server *StompServer) WssHandler(writer http.ResponseWriter, request *http.
 		for _, handler := range server.disconnectHandlers {
 			handler(conn)
 		}
+
+		server.removeClient(conn)
 	}()
 
 	for {
@@ -63,8 +62,12 @@ func (server *StompServer) WssHandler(writer http.ResponseWriter, request *http.
 			}
 
 			for _, handler := range server.connectHandlers {
-				handler(conn, request, &stompMsg)
+				if !handler(conn, request, &stompMsg) {
+					return
+				}
 			}
+
+			server.addClient(conn)
 		} else if command == Send || command == Subscribe || command == Unsubscribe {
 			destination, ok := headers["destination"]
 			if !ok {
@@ -76,13 +79,23 @@ func (server *StompServer) WssHandler(writer http.ResponseWriter, request *http.
 					handler(conn, destination, &stompMsg)
 				}
 			} else if command == Subscribe {
+				subscribe := true
 				for _, handler := range server.subscribeHandlers {
-					handler(conn, destination)
+					if !handler(conn, destination) {
+						subscribe = false
+						break
+					}
+				}
+
+				if subscribe {
+					server.addSubscription(conn, stompMsg)
 				}
 			} else if command == Unsubscribe {
 				for _, handler := range server.unsubscribeHandlers {
 					handler(conn, destination)
 				}
+
+				server.removeSubscription(conn, stompMsg)
 			}
 		} else if command == Disconnect {
 			return
@@ -90,7 +103,7 @@ func (server *StompServer) WssHandler(writer http.ResponseWriter, request *http.
 	}
 }
 
-func (server *StompServer) parseMessage(message []byte) (*StompMessage, error) {
+func (server *Server) parseMessage(message []byte) (*StompMessage, error) {
 	split := bytes.Split(message, []byte("\n"))
 	if len(split) < 2 {
 		server.Sugar.Warnf("invalid command: %s", message)

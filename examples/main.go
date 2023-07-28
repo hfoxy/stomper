@@ -23,20 +23,22 @@ func main() {
 	log.SetFlags(0)
 
 	comp := *compression
-	stompServer := stomper.StompServer{
+	stompServer := stomper.Server{
 		Compression: comp == "true",
 	}
 
-	stompServer.AddConnectHandler(func(conn *websocket.Conn, request *http.Request, message *stomper.StompMessage) {
+	stompServer.AddConnectHandler(func(conn *websocket.Conn, request *http.Request, message *stomper.StompMessage) bool {
 		stompServer.Sugar.Infof("[connect] %s", conn.RemoteAddr())
+		return true
 	})
 
 	stompServer.AddDisconnectHandler(func(conn *websocket.Conn) {
 		stompServer.Sugar.Infof("[disconnect] %s", conn.RemoteAddr())
 	})
 
-	stompServer.AddSubscribeHandler(func(conn *websocket.Conn, s string) {
+	stompServer.AddSubscribeHandler(func(conn *websocket.Conn, s string) bool {
 		stompServer.Sugar.Infof("[%s] [%s] subscribe", conn.RemoteAddr(), s)
+		return true
 	})
 
 	stompServer.AddUnsubscribeHandler(func(conn *websocket.Conn, s string) {
