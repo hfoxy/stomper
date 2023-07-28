@@ -1,0 +1,31 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'develop'
+
+jobs:
+  build:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Declare some variables
+        id: vars
+        shell: bash
+        run: |
+          echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build wss image
+        run: docker image build -t "hfoxy4/stomper:${{ steps.vars.outputs.branch }}" -t "hfoxy4/stomper:${{ steps.vars.outputs.branch }}-${{ steps.vars.outputs.sha_short }}" .
+
+      - name: Publish wss image
+        run: docker push -a "hfoxy4/stomper"
