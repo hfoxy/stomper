@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/hfoxy/stomper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"log"
 	"net/http"
 	"os"
 	"runtime/debug"
-	"stomper"
 	"strconv"
 )
 
