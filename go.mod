@@ -1,4 +1,4 @@
-module stomper
+module github.com/hfoxy/stomper
 
 go 1.20
 
