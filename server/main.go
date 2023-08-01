@@ -28,7 +28,7 @@ func healthHandler(writer http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func main() {
+func DefaultSetup(presetup func(*stomper.Server) error) *stomper.Server {
 	flag.Parse()
 	log.SetFlags(0)
 
@@ -36,13 +36,13 @@ func main() {
 	if dataSource == nil || *dataSource != "redis" {
 		sugar.Errorf("unknown data source: %s", *dataSource)
 		os.Exit(1)
-		return
+		return nil
 	}
 
 	debug.SetMemoryLimit(int64(*memoryLimit))
 
 	comp := *compression
-	stompServer := stomper.Server{
+	stompServer := &stomper.Server{
 		Sugar:       sugar,
 		Compression: comp == "true",
 	}
@@ -52,12 +52,27 @@ func main() {
 		setupRedis(ctx, &stompServer)
 	}
 
+	if presetup != nil {
+		err := presetup(stompServer)
+		if err != nil {
+			sugar.Errorf("unable to run pre-setup: %v", err)
+			return nil
+		}
+	}
+
 	stompServer.Setup()
 	stompServer.Sugar.Infof("staring stomper %s...", version)
 
 	http.HandleFunc("/wss/websocket", stompServer.WssHandler)
 	http.HandleFunc("/health", healthHandler)
 	log.Fatal(http.ListenAndServe(*addr, nil))
+	return stompServer
+}
+
+func main() {
+	DefaultSetup(func(server *stomper.Server) error {
+		return nil
+	})
 }
 
 func logInit() *zap.SugaredLogger {
