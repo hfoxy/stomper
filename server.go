@@ -122,18 +122,18 @@ func (server *Server) Setup() {
 func (server *Server) addClient(client *Client) {
 	_clientMux.Lock()
 	defer _clientMux.Unlock()
-	server.clients[client.uid] = client
+	server.clients[client.Uid] = client
 }
 
 func (server *Server) removeClient(client *Client) {
 	_clientMux.Lock()
 	defer _clientMux.Unlock()
-	delete(server.clients, client.uid)
+	delete(server.clients, client.Uid)
 
 	_subscriptionMux.Lock()
 	defer _subscriptionMux.Unlock()
 	for _, subs := range server.subscriptions {
-		delete(subs, client.uid)
+		delete(subs, client.Uid)
 	}
 }
 
@@ -160,15 +160,15 @@ func (server *Server) addSubscription(client *Client, message StompMessage) bool
 		server.subscriptions[topic] = subs
 	}
 
-	clientSubs, csok := subs[client.uid]
+	clientSubs, csok := subs[client.Uid]
 	if !csok {
 		clientSubs = make(map[string]*Client)
-		subs[client.uid] = clientSubs
+		subs[client.Uid] = clientSubs
 	}
 
 	clientSubs[subId] = client
 	server.subscriptions[topic] = subs
-	server.Sugar.Infof("[%s] subscribed to '%s' (%s)", client.uid, topic, subId)
+	server.Sugar.Infof("[%s] subscribed to '%s' (%s)", client.Uid, topic, subId)
 	return true
 }
 
@@ -194,14 +194,14 @@ func (server *Server) removeSubscription(client *Client, message StompMessage) b
 		return true
 	}
 
-	clientSubs, csok := subs[client.uid]
+	clientSubs, csok := subs[client.Uid]
 	if !csok {
 		return true
 	}
 
 	delete(clientSubs, subId)
 	if len(clientSubs) == 0 {
-		delete(subs, client.uid)
+		delete(subs, client.Uid)
 	}
 
 	server.subscriptions[topic] = subs
@@ -232,7 +232,7 @@ func (server *Server) SendMessage(topic string, contentType string, body string)
 					Body: &byteBody,
 				}
 
-				err := client.conn.WriteMessage(websocket.TextMessage, message.ToPayload())
+				err := client.Conn.WriteMessage(websocket.TextMessage, message.ToPayload())
 				if err != nil {
 					server.Sugar.Errorf("unable to write message: %v", err)
 				}
