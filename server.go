@@ -168,7 +168,7 @@ func (server *Server) addSubscription(client *Client, message StompMessage) bool
 
 	clientSubs[subId] = client
 	server.subscriptions[topic] = subs
-	server.Sugar.Infof("[%s] subscribed to '%s' (%s)", client.Uid, topic, subId)
+	server.Sugar.Infof("[%d] subscribed to '%s' (%s)", client.Uid, topic, subId)
 	return true
 }
 
