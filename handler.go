@@ -15,19 +15,20 @@ var heartBeatPayload = []byte("\n")
 
 // Client is a wrapper over ws connection.
 type Client struct {
-	Conn *websocket.Conn
-	Uid  uint64
+	Conn    *websocket.Conn
+	Uid     uint64
+	Headers map[string]string
 }
 
 var _mutex sync.Mutex
 var clientUid uint64 = 0
 
-func newClient(conn *websocket.Conn) *Client {
+func newClient(conn *websocket.Conn, headers map[string]string) *Client {
 	_mutex.Lock()
 	defer _mutex.Unlock()
 
 	clientUid++
-	return &Client{conn, clientUid}
+	return &Client{conn, clientUid, headers}
 }
 
 func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Request) {
@@ -43,7 +44,7 @@ func (server *Server) WssHandler(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	client := newClient(_conn)
+	client := newClient(_conn, make(map[string]string))
 	go server.clientHandler(client, request.Header)
 }
 
@@ -92,6 +93,13 @@ func (server *Server) clientHandler(client *Client, header http.Header) {
 				server.Sugar.Warnf("unable to connect: %v", err)
 				break
 			}
+
+			copiedHeaders := make(map[string]string)
+			for k, v := range stompMsg.Headers {
+				copiedHeaders[k] = v
+			}
+
+			client.Headers = copiedHeaders
 
 			for _, handler := range server.connectHandlers {
 				if !handler(client, header, &stompMsg) {
