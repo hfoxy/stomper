@@ -208,7 +208,7 @@ func (server *Server) removeSubscription(client *Client, message StompMessage) b
 	return true
 }
 
-func (server *Server) SendMessage(topic string, contentType string, body string) {
+func (server *Server) SendMessageWithCheck(topic string, contentType string, body string, check func(client *Client) bool) {
 	_clientMux.Lock()
 	_subscriptionMux.Lock()
 	defer _clientMux.Unlock()
@@ -232,6 +232,10 @@ func (server *Server) SendMessage(topic string, contentType string, body string)
 					Body: &byteBody,
 				}
 
+				if check != nil && !check(client) {
+					continue
+				}
+
 				err := client.Conn.WriteMessage(websocket.TextMessage, message.ToPayload())
 				if err != nil {
 					server.Sugar.Errorf("unable to write message: %v", err)
@@ -239,6 +243,10 @@ func (server *Server) SendMessage(topic string, contentType string, body string)
 			}
 		}
 	}
+}
+
+func (server *Server) SendMessage(topic string, contentType string, body string) {
+	server.SendMessageWithCheck(topic, contentType, body, nil)
 }
 
 func logInit(debugEnabled bool) *zap.SugaredLogger {
