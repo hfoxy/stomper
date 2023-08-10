@@ -173,13 +173,8 @@ func (server *Server) addSubscription(client *Client, message StompMessage) bool
 }
 
 func (server *Server) removeSubscription(client *Client, message StompMessage) bool {
-	var topic string
 	var subId string
 	var ok bool
-	if topic, ok = message.Headers["destination"]; !ok {
-		return false
-	}
-
 	if subId, ok = message.Headers["id"]; !ok {
 		return false
 	}
@@ -189,22 +184,20 @@ func (server *Server) removeSubscription(client *Client, message StompMessage) b
 	defer _clientMux.Unlock()
 	defer _subscriptionMux.Unlock()
 
-	subs, sok := server.subscriptions[topic]
-	if !sok {
-		return true
+	for _, subs := range server.subscriptions {
+		clientSubs, csok := subs[client.Uid]
+		if !csok {
+			return true
+		}
+
+		delete(clientSubs, subId)
+		if len(clientSubs) == 0 {
+			delete(subs, client.Uid)
+		}
+
+		//server.subscriptions[topic] = subs
 	}
 
-	clientSubs, csok := subs[client.Uid]
-	if !csok {
-		return true
-	}
-
-	delete(clientSubs, subId)
-	if len(clientSubs) == 0 {
-		delete(subs, client.Uid)
-	}
-
-	server.subscriptions[topic] = subs
 	return true
 }
 
