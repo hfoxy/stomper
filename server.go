@@ -184,7 +184,7 @@ func (server *Server) removeSubscription(client *Client, message StompMessage) b
 	defer _clientMux.Unlock()
 	defer _subscriptionMux.Unlock()
 
-	for _, subs := range server.subscriptions {
+	for topic, subs := range server.subscriptions {
 		clientSubs, csok := subs[client.Uid]
 		if !csok {
 			return true
@@ -195,7 +195,7 @@ func (server *Server) removeSubscription(client *Client, message StompMessage) b
 			delete(subs, client.Uid)
 		}
 
-		//server.subscriptions[topic] = subs
+		server.subscriptions[topic] = subs
 	}
 
 	return true
